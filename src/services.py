@@ -1,9 +1,15 @@
-from src.utils import (analyze_cashback, find_person_to_person_transactions, investment_bank,
-                          search_transaction_by_mobile_phone, search_transactions_by_user_choice)
-from src.config import transactions, year, month, limit, search, date
+from typing import Any
+
+from src.utils import (
+    analyze_cashback,
+    find_person_to_person_transactions,
+    investment_bank,
+    search_transaction_by_mobile_phone,
+    search_transactions_by_user_choice,
+)
 
 
-def page_services():
+def page_services(transactions: Any, year: Any, month: Any, limit: Any, search: Any, date: Any) -> Any:
     cashback_analysis_result = analyze_cashback(transactions, year, month)
     investment_bank_result = investment_bank(transactions, date, limit)
     search_transactions_by_user_choice_result = search_transactions_by_user_choice(transactions, search)
@@ -14,6 +20,3 @@ def page_services():
     print(search_transactions_by_user_choice_result)
     print(search_transaction_by_mobile_phone_result)
     print(find_person_to_person_transactions_result)
-
-
-
