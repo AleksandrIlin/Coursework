@@ -9,15 +9,15 @@ from src.logger import logger_setup
 import requests
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-file_path = os.path.join(current_dir, "../logs", "utils.log")
-logger = logger_setup("utils", file_path)
+file_path_log = os.path.join(current_dir, "../logs", "utils.log")
+logger = logger_setup("utils", file_path_log)
 
 
-# Веб страница главное и событие
-def get_read_excel(file_path_transactions: str) -> List[Dict]:
+# Веб страница главное
+def get_read_excel(file_path: str) -> List[Dict]:
     """Функция принимает путь до xlsx файла и создает список словарей с транзакциями"""
     try:
-        df = pd.read_excel(file_path_transactions)
+        df = pd.read_excel(file_path)
         logger.info('файл перекодирован в список словарей')
         return df.to_dict(orient='records')
     except Exception as e:
@@ -113,6 +113,87 @@ def get_top_5_transactions(transactions: List[Dict]) -> List[Dict]:
     return top_5_sorted_transactions
 
 
+# Страница событие
+def process_expenses(df):
+    # Сумма расходов
+    total_expenses = round(df['Сумма операции'].apply(lambda x: abs(x)).sum(), 0)
+
+    # Траты по категориям
+    grouped = df.groupby('Категория').agg({'Сумма операции': 'sum'})
+    main_categories = grouped.nlargest(7, 'Сумма операции')
+    other_categories_sum = grouped[~grouped.index.isin(main_categories.index)].sum()
+    main_categories.loc['Остальное'] = other_categories_sum
+    main_categories = main_categories.reset_index().to_dict(orient='records')
+
+    # Траты на наличные и переводы
+    transfers_and_cash = df[df['Категория'].isin(['Переводы', 'Наличные'])].groupby('Категория').agg(
+        {'Сумма операции': 'sum'}).reset_index().to_dict(orient='records')
+    result_expenses = {
+        'total_amount': total_expenses,
+        'main': main_categories,
+        'transfers_and_cash': transfers_and_cash
+    }
+
+    return result_expenses
+
+
+def process_income(df):
+    # Сумма поступлений
+    total_income = round(df['Сумма операции'].apply(lambda x: abs(x)).sum(), 0)
+
+    # Поступления по категориям
+    main_categories = df.groupby('Категория').agg({'Сумма операции': 'sum'}).nlargest(3,
+                                                                                      'Сумма операции').reset_index().to_dict(
+        orient='records')
+    result_income = {
+        'total_amount': total_income,
+        'main': main_categories
+    }
+
+    return result_income
+
+
+def process_expenses_and_income(data_file, date_str, range_type='M'):
+    # Чтение данных из файла
+    df = pd.read_excel(data_file)
+
+    # Приведение дат к нужному формату
+    df['Дата операции'] = pd.to_datetime(df['Дата операции'], format='%d.%m.%Y %H:%M:%S')
+    df['Дата платежа'] = pd.to_datetime(df['Дата платежа'], format='%d.%m.%Y')
+
+    # Определение начальной и конечной даты
+    date = datetime.strptime(date_str, '%d.%m.%Y')
+    if range_type == 'W':
+        start_date = date - timedelta(days=date.weekday())
+        end_date = start_date + timedelta(days=6)
+    elif range_type == 'M':
+        start_date = datetime(date.year, date.month, 1)
+        end_date = datetime(date.year, date.month, pd.Period(date, "M").days_in_month)
+    elif range_type == 'Y':
+        start_date = datetime(date.year, 1, 1)
+        end_date = datetime(date.year, 12, 31)
+    elif range_type == 'ALL':
+        start_date = datetime(1970, 1, 1)
+        end_date = date
+    else:
+        raise ValueError('Invalid range type')
+
+    # Фильтрация данных по дате
+    df = df[(df['Дата операции'] >= start_date) & (df['Дата операции'] <= end_date)]
+
+    return df
+
+
+def final_processing(result_expenses, result_income):
+    result_final = {
+        'expenses': result_expenses,
+        'income': result_income
+    }
+
+    return json.dumps(result_final, ensure_ascii=False, indent=4)
+
+
+#Общие функции страницы главной и события
 def get_exchange_rates(currencies: List[str], api_key_currency) -> List[Dict]:
     """Функция принимает список кодов валют и возвращает список словарей с валютами и их курсами"""
     exchange_rates = []
@@ -128,7 +209,7 @@ def get_exchange_rates(currencies: List[str], api_key_currency) -> List[Dict]:
                 "currency": currency,
                 "rate": ruble_cost})
         else:
-            print(f"Ошибка: {response.status_code}, {response.text}")
+            print(f"Ошибка: {response.status_code}, {response.text}    1")
             logger.error(f'Ошибка api запроса {response.status_code}, {response.text}')
             exchange_rates.append({
                 "currency": currency,
@@ -163,7 +244,7 @@ def get_stocks_cost(companies: List[str], api_key_stocks) -> List[Dict]:
                     "stock": company,
                     "price": None})
         else:
-            print(f"Ошибка: {response.status_code}, {response.text}")
+            print(f"Ошибка: {response.status_code}, {response.text}    2")
             logger.error(f'Ошибка api запроса {response.status_code}, {response.text}')
             stocks_cost.append({
                 "stock": company,
@@ -187,7 +268,7 @@ def analyze_cashback(transactions: List[Dict], year: int, month: int) -> str:
                     if cashback_value is not None and cashback_value >= 0:
                         cashback = float(cashback_value)
                     else:
-                        cashback = round(amount * -0.01, 5)
+                        cashback = abs(round(amount * 0.01))
                     if category in cashback_analysis:
                         cashback_analysis[category] += cashback
                     else:
@@ -212,7 +293,7 @@ def investment_bank(transactions: List[Dict], date: str, limit: int) -> float | 
                 amount = transaction["Сумма операции"]
                 if amount < 0 and transaction["Категория"] != "Переводы" and transaction["Категория"] != "Наличные":
                     amount_ = abs(amount)  # перевел в положительное
-                    total_amount = ((amount_ + limit + 1) // limit) * limit - amount_
+                    total_amount = round(((amount_ + limit + 1) // limit) * limit - amount_)
                     sum_investment_bank += total_amount
         logger.info(f"Инвесткопилка за  {date} посчитана")
         return sum_investment_bank
