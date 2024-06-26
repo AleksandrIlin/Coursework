@@ -1,9 +1,7 @@
-import functools
 import json
 import os
-import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 
 import pandas as pd
 import requests
@@ -124,6 +122,7 @@ def get_top_5_transactions(transactions: List[Dict]) -> List[Dict]:
 
 # Страница событие
 def process_expenses(df: pd.DataFrame) -> dict[str, Any]:
+    """Функция в котором траты по категориям отсортированы по убыванию"""
     # Сумма расходов
     total_expenses = round(df["Сумма операции"].apply(lambda x: abs(x)).sum(), 0)
 
@@ -152,6 +151,8 @@ def process_expenses(df: pd.DataFrame) -> dict[str, Any]:
 
 
 def process_income(df: pd.DataFrame) -> dict:
+    """Функция принимает список словарей сортирует его по убыванию и выводит общую сумму,
+    топ 3 категории по убываниб с выводом категории и кэшбэка"""
     # Сумма поступлений
     total_income = round(df["Сумма операции"].apply(lambda x: abs(x)).sum(), 0)
 
@@ -169,6 +170,7 @@ def process_income(df: pd.DataFrame) -> dict:
 
 
 def process_expenses_and_income(file_path: Any, date_str: Any, range_type: str = "M") -> pd.DataFrame:
+    """Функция принимающая на вход строку с датой и второй необязательный параметр — диапазон данных"""
     # Чтение данных из файла
     df = pd.read_excel(file_path)
 
@@ -188,7 +190,7 @@ def process_expenses_and_income(file_path: Any, date_str: Any, range_type: str =
         start_date = datetime(date.year, 1, 1)
         end_date = datetime(date.year, 12, 31)
     elif range_type == "ALL":
-        start_date = datetime(1970, 1, 1)
+        start_date = datetime(2000, 1, 1)
         end_date = date
     else:
         raise ValueError("Invalid range type")
@@ -200,6 +202,7 @@ def process_expenses_and_income(file_path: Any, date_str: Any, range_type: str =
 
 
 def final_processing(result_expenses: Any, result_income: Any) -> str:
+    """Функция возвращающая Json_ответ"""
     result_final = {"expenses": result_expenses, "income": result_income}
 
     return json.dumps(result_final, ensure_ascii=False, indent=4)
@@ -252,219 +255,3 @@ def get_stocks_cost(companies: List[str], api_key_stocks: str) -> List[Dict]:
             stocks_cost.append({"stock": company, "price": None})
     logger.info("Стоимость акций создана")
     return stocks_cost
-
-
-# Страница сервисы
-def analyze_cashback(transactions: List[Dict], year: int, month: int) -> str:
-    """Принимает список словарей транзакций и считает сумму кэшбека по категориям"""
-    try:
-        cashback_analysis: Dict = {}
-        for transaction in transactions:
-            transaction_date = datetime.strptime(transaction["Дата операции"], "%d.%m.%Y %H:%M:%S")
-            if transaction_date.year == year and transaction_date.month == month:
-                category = transaction["Категория"]
-                amount = transaction["Сумма операции"]
-                if amount < 0:
-                    cashback_value = transaction["Кэшбэк"]
-                    if cashback_value is not None and cashback_value >= 0:
-                        cashback = float(cashback_value)
-                    else:
-                        cashback = abs(round(amount * 0.01))
-                    if category in cashback_analysis:
-                        cashback_analysis[category] += cashback
-                    else:
-                        cashback_analysis[category] = cashback
-        logger.info("Посчитана сумма кэшбека по категориям")
-        return json.dumps(cashback_analysis, ensure_ascii=False, indent=4)
-    except Exception as e:
-        print(f"Возникла ошибка {e}")
-        logger.error(f"Возникла ошибка {e}")
-        return ""
-
-
-# принимает строку с датой гггг.мм
-def investment_bank(transactions: List[Dict], date: str, limit: int) -> float | Exception:
-    """Функция принимает транзакции, дату и лимит округления и считает сколько можно было отложить в инвесткопилку"""
-    try:
-        sum_investment_bank = float(0.0)
-        user_date = datetime.strptime(date, "%Y.%m")
-        for transaction in transactions:
-            transaction_date = datetime.strptime(transaction["Дата операции"], "%d.%m.%Y %H:%M:%S")
-            if transaction_date.year == user_date.year and transaction_date.month == user_date.month:
-                amount = transaction["Сумма операции"]
-                if amount < 0 and transaction["Категория"] != "Переводы" and transaction["Категория"] != "Наличные":
-                    amount_ = abs(amount)  # перевел в положительное
-                    total_amount = round(((amount_ + limit + 1) // limit) * limit - amount_)
-                    sum_investment_bank += total_amount
-        logger.info(f"Инвесткопилка за  {date} посчитана")
-        return sum_investment_bank
-    except Exception as e:
-        print(f"Возникла ошибка {e}")
-        logger.error(f"Возникла ошибка {e}")
-        return e
-
-
-def search_transactions_by_user_choice(transactions: List[Dict], search: str) -> str:
-    """Функция выполняет поиск в транзакциях по переданной строке"""
-    try:
-        search_result = []
-        for transaction in transactions:
-            category = str(transaction.get("Категория", ""))
-            description = str(transaction.get("Описание", ""))
-            if search.lower() in description.lower() or search.lower() in category.lower():
-                search_result.append(transaction)
-        logger.info(f"Выполнен поиск по запросу {search}")
-        return json.dumps(search_result, ensure_ascii=False, indent=4)
-    except Exception as e:
-        print(f"Возникла ошибка {e}")
-        logger.error(f"Возникла ошибка {e}")
-        return ""
-
-
-def search_transaction_by_mobile_phone(transactions: List[Dict]) -> str:
-    """Функция возвращает транзакции в описании которых есть мобильный номер"""
-    try:
-        mobile_pattern = re.compile(r"\+\d{1,4}")
-        found_transactions = []
-        for transaction in transactions:
-            description = transaction.get("Описание", "")
-            if mobile_pattern.search(description):
-                found_transactions.append(transaction)
-        logger.info("Выполнен поиск по транзакциям с номером телефона")
-        return json.dumps(found_transactions, ensure_ascii=False, indent=4)
-    except Exception as e:
-        print(f"Возникла ошибка {e}")
-        logger.error(f"Возникла ошибка {e}")
-        return ""
-
-
-def find_person_to_person_transactions(transactions: List[Dict]) -> str:
-    """Функция вовзращает транзакции в описании которых есть имя кому или от кого выполнен перевод"""
-    try:
-        transfer_transactions = []
-        search_pattern = re.compile(r"\b[А-ЯЁ][а-яё]*\s[А-ЯЁ]\.")
-        for transaction in transactions:
-            category = transaction.get("Категория", "")
-            description = transaction.get("Описание", "")
-            if category == "Переводы" and search_pattern.search(description):
-                transfer_transactions.append(transaction)
-        logger.info("Выполнен поиск по переводам физлицам")
-        return json.dumps(transfer_transactions, ensure_ascii=False, indent=4)
-    except Exception as e:
-        print(f"Возникла ошибка {e}")
-        logger.error(f"Возникла ошибка {e}")
-        return ""
-
-
-# Страница отчеты
-def report_to_file_default(func: Any) -> Any:
-    """Записывает в файл результат, который возвращает функция, формирующая отчет."""
-
-    @functools.wraps(func)
-    def wrapper(*args: tuple, **kwargs: dict) -> Any:
-        result = func(*args, **kwargs)
-        with open("function_operation_report.txt", "w") as file:
-            file.write(str(result))
-        logger.info(f"Записан результат работы функции {func}")
-        return result
-
-    return wrapper
-
-
-def report_to_file(filename: str = "function_operation_report.txt") -> Any:
-    """Записывает в переданный файл результат, который возвращает функция, формирующая отчет."""
-
-    def decorator(func: Any) -> Any:
-        @functools.wraps(func)
-        def wrapper(*args: tuple, **kwargs: dict) -> Any:
-            result = func(*args, **kwargs)
-            with open(filename, "w") as file:
-                file.write(str(result))
-            logger.info(f"Записан результат работы функции {func} в файл {filename}")
-            return result
-
-        return wrapper
-
-    return decorator
-
-
-# дата гггг.мм.дд
-@report_to_file_default
-def spending_by_category(transactions: pd.DataFrame, category: str, date: Optional[str] = None) -> str:
-    """Функция возвращает траты по заданной категории за последние три месяца
-    (от переданной даты, если дата не передана берет текущую)"""
-    try:
-        transactions["Дата операции"] = pd.to_datetime(transactions["Дата операции"], format="%d.%m.%Y %H:%M:%S")
-        if date is None:
-            date = datetime.now()
-        else:
-            date = datetime.strptime(date, "%Y.%m.%d")
-        start_date = date - timedelta(days=date.day - 1) - timedelta(days=3 * 30)
-        filtered_transactions = transactions[
-            (transactions["Дата операции"] >= start_date)
-            & (transactions["Дата операции"] <= date)
-            & (transactions["Категория"] == category)
-        ]
-        result = filtered_transactions.to_dict(orient="records")
-        for record in result:
-            record["Дата операции"] = record["Дата операции"].strftime("%d.%m.%Y %H:%M:%S")
-        formatted_result = json.dumps(result, ensure_ascii=False, indent=4)
-        return formatted_result
-    except Exception as e:
-        print(f"Возникла ошибка {e}")
-
-        return ""
-
-
-@report_to_file_default
-def spending_by_weekday(transactions: pd.DataFrame, date: Optional[str] = None) -> str:
-    """Функция возвращает средние траты в каждый из дней недели за последние три месяца (от переданной даты)"""
-    try:
-        transactions["Дата операции"] = pd.to_datetime(transactions["Дата операции"], format="%d.%m.%Y %H:%M:%S")
-        if date is None:
-            date = datetime.now()
-        else:
-            date = datetime.strptime(date, "%Y.%m.%d")
-        start_date: Union = date - timedelta(days=date.day) - timedelta(days=3 * 30)
-        filtered_transactions = transactions[
-            (transactions["Дата операции"] >= start_date) & (transactions["Дата операции"] <= date)
-        ]
-        filtered_transactions = filtered_transactions.copy()
-        filtered_transactions.loc[:, "День недели"] = filtered_transactions["Дата операции"].dt.dayofweek
-        grouped_transactions = filtered_transactions.groupby("День недели")["Сумма операции"].mean()
-        weekdays = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-        grouped_transactions.index = weekdays
-        result_dict = {day: grouped_transactions.get(day, 0.0) for day in weekdays}
-        logger.info(f"Средние траты по дням недели начиная с {date}")
-        return json.dumps(result_dict, ensure_ascii=False, indent=4)
-    except Exception as e:
-        print(f"Возникла ошибка {e}")
-        logger.error(f"Возникла ошибка {e}")
-        return ""
-
-
-@report_to_file_default
-def spending_by_workday(transactions: pd.DataFrame, date: Optional[str] = None) -> Any:
-    """Функция выводит средние траты в рабочий и в выходной день за последние три месяца (от переданной даты)."""
-    try:
-        transactions["Дата операции"] = pd.to_datetime(transactions["Дата операции"], format="%d.%m.%Y %H:%M:%S")
-        if date is None:
-            date = datetime.now()
-        else:
-            date = datetime.strptime(date, "%Y.%m.%d")
-        weekend_days = [5, 6]
-        start_date = date - timedelta(days=date.day) - timedelta(days=3 * 30)
-        filtered_transactions = transactions[
-            (transactions["Дата операции"] >= start_date) & (transactions["Дата операции"] <= date)
-        ]
-        filtered_transactions = filtered_transactions.copy()
-        filtered_transactions["День недели"] = filtered_transactions["Дата операции"].dt.dayofweek
-        filtered_transactions["Тип дня"] = "Рабочий"
-        filtered_transactions.loc[filtered_transactions["День недели"].isin(weekend_days), "Тип дня"] = "Выходной"
-        grouped_transactions = filtered_transactions.groupby("Тип дня")["Сумма операции"].mean()
-        logger.info(f"средние траты за последние три месяца от {date} по рабочим и выходным дням")
-        return json.dumps(grouped_transactions.to_dict(), ensure_ascii=False, indent=4)
-    except Exception as e:
-        print(f"Возникла ошибка {e}")
-        logger.error(f"Возникла ошибка {e}")
-        return ""

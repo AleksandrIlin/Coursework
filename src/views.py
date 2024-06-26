@@ -47,6 +47,7 @@ def web_page_home(input_date_str: Any, user_settings: dict, api_key_currency: An
 
 
 def web_page_event(input_date_str: Any) -> str:
+    """Функция вывода страницы события"""
     df = process_expenses_and_income(file_path, input_date_str)
     result_expenses = process_expenses(df)
     result_income = process_income(df)
@@ -55,6 +56,7 @@ def web_page_event(input_date_str: Any) -> str:
 
 
 def web_page_event_dop(user_settings: dict, api_key_currency: Any, api_key_stocks: Any) -> Any:
+    """Дополнительная функция к странице событие для вывода json ответа по акциям и валютам"""
     exchange_rates = get_exchange_rates(user_settings["user_currencies"], api_key_currency)
     stocks_cost = get_stocks_cost(user_settings["user_stocks"], api_key_stocks)
     user_data = {"exchange_rates": exchange_rates, "stocks": stocks_cost}
